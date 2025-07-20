@@ -1,72 +1,93 @@
-/* While this template provides a good starting point for using Wear Compose, you can always
- * take a look at https://github.com/android/wear-os-samples/tree/main/ComposeStarter to find the
- * most up to date changes to the libraries and their usages.
- */
-
 package com.jovicheer.whisper_voice_wear_native.presentation
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.wear.compose.material.Button
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
-import androidx.wear.compose.material.TimeText
-import androidx.wear.tooling.preview.devices.WearDevices
-import com.jovicheer.whisper_voice_wear_native.R
-import com.jovicheer.whisper_voice_wear_native.presentation.theme.Whisper_voice_wear_nativeTheme
+import com.google.android.gms.wearable.*
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), MessageClient.OnMessageReceivedListener {
+
+    private val messageClient by lazy { Wearable.getMessageClient(this) }
+    private val nodeClient by lazy { Wearable.getNodeClient(this) }
+    private var uiState by mutableStateOf("—")
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
-
         super.onCreate(savedInstanceState)
 
-        setTheme(android.R.style.Theme_DeviceDefault)
+        /** 初始化 Wearable 通訊：這段超重要！ **/
+        nodeClient.connectedNodes
+            .addOnSuccessListener { nodes ->
+                for (node in nodes) {
+                    Log.d("WearTest", "Connected to: ${node.displayName} (${node.id})")
+                }
+            }
+            .addOnFailureListener {
+                Log.e("WearTest", "Failed to get nodes: ${it.message}")
+            }
 
         setContent {
-            WearApp("Android")
+            MaterialTheme {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(text = uiState)
+                        Spacer(Modifier.height(8.dp))
+                        Button(onClick = { sendGetInput() }) {
+                            Text("Get Input")
+                        }
+                    }
+                }
+            }
         }
     }
-}
 
-@Composable
-fun WearApp(greetingName: String) {
-    Whisper_voice_wear_nativeTheme {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colors.background),
-            contentAlignment = Alignment.Center
-        ) {
-            TimeText()
-            Greeting(greetingName = greetingName)
+    override fun onResume() {
+        super.onResume()
+        messageClient.addListener(this)
+    }
+
+    override fun onPause() {
+        messageClient.removeListener(this)
+        super.onPause()
+    }
+
+    private fun sendGetInput() {
+        nodeClient.connectedNodes
+            .addOnSuccessListener { nodes ->
+                for (node in nodes) {
+                    Log.d("WearTest", "Sending to: ${node.displayName}")
+                    messageClient.sendMessage(node.id, "/get_input", null)
+                        .addOnSuccessListener {
+                            Log.d("WearTest", "Message sent to ${node.id}")
+                        }
+                        .addOnFailureListener {
+                            Log.e("WearTest", "Send failed: ${it.message}")
+                        }
+                }
+            }
+            .addOnFailureListener {
+                Log.e("WearTest", "Node fetch failed: ${it.message}")
+            }
+    }
+
+    override fun onMessageReceived(event: MessageEvent) {
+        if (event.path == "/input_response") {
+            val text = String(event.data)
+            Log.d("WearTest", "Received response: $text")
+            uiState = text
         }
     }
-}
-
-@Composable
-fun Greeting(greetingName: String) {
-    Text(
-        modifier = Modifier.fillMaxWidth(),
-        textAlign = TextAlign.Center,
-        color = MaterialTheme.colors.primary,
-        text = stringResource(R.string.hello_world, greetingName)
-    )
-}
-
-@Preview(device = WearDevices.SMALL_ROUND, showSystemUi = true)
-@Composable
-fun DefaultPreview() {
-    WearApp("Preview Android")
 }
